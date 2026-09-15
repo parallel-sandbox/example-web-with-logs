@@ -29,9 +29,18 @@ docker compose down
 
 ## 在 ParallelSandbox 的箱子裡跑
 
-先在 https://app.parallelsandbox.com/ 建一個 project，拿到 project id 與 write key。write key 是可以放在網頁上的公開鍵，只能寫入這個 project 的 log；別把租戶 API key 放進網頁。
+先用租戶 API key 建一個 log project，回應裡有 project id 與 write key：
 
-1. 把 write key 存成 secret（在 app 的帳號頁，或 `POST /v1/secrets`），名稱 `PSBX_LOG_WRITE_KEY`。箱子只在認領時拿到 secrets，收掉就消失，不會出現在 log 裡。
+```bash
+curl -fsS -X POST https://api.parallelsandbox.com/v1/projects \
+  -H "Authorization: Bearer psbx_YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "name": "example-web", "origins": ["http://localhost:8080"] }'
+```
+
+write key 是可以放在網頁上的公開鍵，只能寫入這個 project 的 log；別把租戶 API key 放進網頁。
+
+1. 把 write key 存成 secret，名稱 `PSBX_LOG_WRITE_KEY`：`POST /v1/secrets` 帶 `{ "name": "PSBX_LOG_WRITE_KEY", "value": "pw_..." }`。箱子只在認領時拿到 secrets，收掉就消失，不會出現在 log 裡。
 
 2. 起箱子，帶上這個 secret：
 
@@ -120,9 +129,18 @@ Without `PSBX_LOG_*` variables compose falls back to `local` placeholders; the p
 
 ## Run inside a ParallelSandbox box
 
-Create a project at https://app.parallelsandbox.com/ first to get a project id and a write key. The write key is a public key that can live in a web page; it can only write logs into that project. Never put your tenant API key in a page.
+Create a log project with your tenant API key first; the response carries the project id and the write key:
 
-1. Store the write key as a secret (account page in the app, or `POST /v1/secrets`) named `PSBX_LOG_WRITE_KEY`. A box receives secrets only when it is claimed, they vanish when it stops, and they never appear in logs.
+```bash
+curl -fsS -X POST https://api.parallelsandbox.com/v1/projects \
+  -H "Authorization: Bearer psbx_YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "name": "example-web", "origins": ["http://localhost:8080"] }'
+```
+
+The write key is a public key that can live in a web page; it can only write logs into that project. Never put your tenant API key in a page.
+
+1. Store the write key as a secret named `PSBX_LOG_WRITE_KEY`: `POST /v1/secrets` with `{ "name": "PSBX_LOG_WRITE_KEY", "value": "pw_..." }`. A box receives secrets only when it is claimed, they vanish when it stops, and they never appear in logs.
 
 2. Start a box with that secret:
 
