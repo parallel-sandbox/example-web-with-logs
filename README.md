@@ -1,0 +1,181 @@
+# example-web-with-logs
+
+ParallelSandbox 的範例 repo 之一：一頁靜態網頁，掛上瀏覽器 log SDK `@parallelsandbox/log`。頁上有一個按鈕，按下去會丟一個帶完整 stack 的未捕捉錯誤；SDK 把它送到你的 project，agent 用 `logs_errors` 就撈得到，stack 已經用上傳的 source map 還原成原始檔與行號。
+
+English version below.
+
+## 內容
+
+| 檔案 | 說明 |
+|---|---|
+| `src/index.html` | 頁面。用 import map 把 `@parallelsandbox/log` 指到 npm 上的套件（經 jsDelivr），先載 `config.js` 再載兩個 module |
+| `src/log-init.js` | 只做一件事：`init({ project, writeKey, endpoint, release })`。SDK 初始化後自動接管 `window.onerror` 與未處理的 promise rejection |
+| `src/app.js` | 頁面邏輯。按鈕經 `handleCheckout → prepareOrder → chargeCard` 三層呼叫丟出 `Error`，所以 stack 有三個 frame 可以還原 |
+| `build.mjs` | esbuild：壓縮、產 source map、檔名帶 hash、把 release id 寫進 `dist/release.txt` |
+| `docker/40-write-config.sh` | 容器啟動時用環境變數寫出 `config.js`（project、write key、endpoint、release），所以 write key 不進 image |
+| `scripts/upload-sourcemaps.sh` | build 完把 `dist/assets/*.map` 上傳到 log server，`logs_errors` 才能還原 stack |
+
+`package.json` 把 `@parallelsandbox/log` 列在 `optionalDependencies`：頁面在瀏覽器裡經 import map 載入 SDK，不需要 bundler；你要改成 bundle 進去時把它移到 `dependencies`、在 `build.mjs` 拿掉 `external`，再 `npm install`。
+
+## 本機跑
+
+```bash
+PSBX_RELEASE=$(git rev-parse --short HEAD) docker compose up -d --build --wait
+open http://localhost:8080          # 按 Throw an error，頁面會顯示丟出的 stack
+docker compose down
+```
+
+沒給 `PSBX_LOG_*` 環境變數時 compose 會用 `local` 的假值，頁面照常運作，錯誤只留在瀏覽器 console。
+
+## 在 ParallelSandbox 的箱子裡跑
+
+先在 https://app.parallelsandbox.com/ 建一個 project，拿到 project id 與 write key。write key 是可以放在網頁上的公開鍵，只能寫入這個 project 的 log；別把租戶 API key 放進網頁。
+
+1. 把 write key 存成 secret（在 app 的帳號頁，或 `POST /v1/secrets`），名稱 `PSBX_LOG_WRITE_KEY`。箱子只在認領時拿到 secrets，收掉就消失，不會出現在 log 裡。
+
+2. 起箱子，帶上這個 secret：
+
+   ```json
+   sandbox_start { "services": [{ "name": "web", "port": 8080 }], "secrets": ["PSBX_LOG_WRITE_KEY"] }
+   ```
+
+3. 放程式碼、build、跑：
+
+   ```json
+   sandbox_exec { "id": "<id>", "cmd": "git clone https://github.com/parallel-sandbox/example-web-with-logs.git" }
+   sandbox_exec { "id": "<id>", "cmd": "PSBX_RELEASE=$(git rev-parse --short HEAD) PSBX_LOG_PROJECT=<project id> PSBX_LOG_ENDPOINT=https://log.parallelsandbox.com docker compose up -d --build --wait", "cwd": "example-web-with-logs", "timeoutSec": 600 }
+   sandbox_wire { "id": "<id>", "service": "web", "mode": "box" }
+   ```
+
+   `PSBX_LOG_WRITE_KEY` 已經是箱子的環境變數，compose 直接帶進容器。
+
+4. 上傳 source map。容器裡的 build 產物跟本機 `npm run build` 一樣，所以在箱子裡再 build 一次拿到同一個 release 的 map：
+
+   ```json
+   sandbox_exec { "id": "<id>", "cmd": "npm ci && PSBX_RELEASE=$(git rev-parse --short HEAD) npm run build && PSBX_API_KEY=<api key> PSBX_LOG_PROJECT=<project id> ./scripts/upload-sourcemaps.sh", "cwd": "example-web-with-logs", "timeoutSec": 600 }
+   ```
+
+5. 在箱子的虛擬螢幕上開頁面，按下按鈕：
+
+   ```json
+   sandbox_exec { "id": "<id>", "cmd": "DISPLAY=:99 chromium --no-sandbox --kiosk --window-size=1280,800 --user-data-dir=/tmp/chrome http://localhost:8080/", "background": true }
+   sandbox_shot { "id": "<id>" }
+   ```
+
+   從 `takeoverUrl` 進去用滑鼠按 `Throw an error`，或用 xdotool：`sandbox_exec { "id": "<id>", "cmd": "DISPLAY=:99 xdotool mousemove 640 300 click 1" }`（按鈕位置以 `sandbox_shot` 的截圖為準）。
+
+6. 撈錯誤：
+
+   ```json
+   logs_errors { "project": "<project id>", "since": "10m" }
+   ```
+
+   回來的每一列都有 `message`、`release`、`boxId` 與還原後的 stack：`chargeCard (src/app.js:9)`、`prepareOrder (src/app.js:14)`、`handleCheckout (src/app.js:18)`。
+
+7. `sandbox_stop { "id": "<id>" }`。
+
+## SDK 的用法
+
+```js
+import { init } from '@parallelsandbox/log';
+
+init({
+  project: 'prj_...',                          // project id
+  writeKey: 'pw_...',                          // 該 project 的 write key，可公開
+  endpoint: 'https://log.parallelsandbox.com', // log server
+  release: 'a1b2c3d',                          // 與上傳 source map 時同一個 release id
+});
+```
+
+`init` 之後未捕捉的錯誤、未處理的 promise rejection、`console.error` 會自動送出，頁面在箱子裡跑時會自動帶上 box id。完整說明在 https://parallelsandbox.com/docs/log-sdk/ 。
+
+---
+
+# example-web-with-logs (English)
+
+One of the ParallelSandbox example repos: a single static page with the browser log SDK `@parallelsandbox/log` attached. A button throws an uncaught error with a full stack; the SDK ships it to your project, and `logs_errors` returns it with the stack resolved to original files and lines through the uploaded source map.
+
+## What is inside
+
+| File | Notes |
+|---|---|
+| `src/index.html` | The page. An import map points `@parallelsandbox/log` at the npm package (via jsDelivr); `config.js` loads before the two modules |
+| `src/log-init.js` | Does one thing: `init({ project, writeKey, endpoint, release })`. Once initialised the SDK hooks `window.onerror` and unhandled promise rejections |
+| `src/app.js` | Page logic. The button throws an `Error` through `handleCheckout → prepareOrder → chargeCard`, so there are three frames to resolve |
+| `build.mjs` | esbuild: minify, emit source maps, hashed file names, write the release id to `dist/release.txt` |
+| `docker/40-write-config.sh` | Writes `config.js` from environment variables at container start (project, write key, endpoint, release), so the write key never enters the image |
+| `scripts/upload-sourcemaps.sh` | Uploads `dist/assets/*.map` to the log server after a build so `logs_errors` can resolve stacks |
+
+`package.json` lists `@parallelsandbox/log` under `optionalDependencies`: the browser loads the SDK through the import map, no bundler needed. To bundle it instead, move it to `dependencies`, drop `external` in `build.mjs` and run `npm install`.
+
+## Run locally
+
+```bash
+PSBX_RELEASE=$(git rev-parse --short HEAD) docker compose up -d --build --wait
+open http://localhost:8080          # press Throw an error, the page shows the thrown stack
+docker compose down
+```
+
+Without `PSBX_LOG_*` variables compose falls back to `local` placeholders; the page works and the error stays in the browser console.
+
+## Run inside a ParallelSandbox box
+
+Create a project at https://app.parallelsandbox.com/ first to get a project id and a write key. The write key is a public key that can live in a web page; it can only write logs into that project. Never put your tenant API key in a page.
+
+1. Store the write key as a secret (account page in the app, or `POST /v1/secrets`) named `PSBX_LOG_WRITE_KEY`. A box receives secrets only when it is claimed, they vanish when it stops, and they never appear in logs.
+
+2. Start a box with that secret:
+
+   ```json
+   sandbox_start { "services": [{ "name": "web", "port": 8080 }], "secrets": ["PSBX_LOG_WRITE_KEY"] }
+   ```
+
+3. Put the code in, build, run:
+
+   ```json
+   sandbox_exec { "id": "<id>", "cmd": "git clone https://github.com/parallel-sandbox/example-web-with-logs.git" }
+   sandbox_exec { "id": "<id>", "cmd": "PSBX_RELEASE=$(git rev-parse --short HEAD) PSBX_LOG_PROJECT=<project id> PSBX_LOG_ENDPOINT=https://log.parallelsandbox.com docker compose up -d --build --wait", "cwd": "example-web-with-logs", "timeoutSec": 600 }
+   sandbox_wire { "id": "<id>", "service": "web", "mode": "box" }
+   ```
+
+   `PSBX_LOG_WRITE_KEY` is already an environment variable on the box; compose passes it into the container.
+
+4. Upload the source maps. The build inside the container is identical to `npm run build`, so build once more in the box to get the maps for the same release:
+
+   ```json
+   sandbox_exec { "id": "<id>", "cmd": "npm ci && PSBX_RELEASE=$(git rev-parse --short HEAD) npm run build && PSBX_API_KEY=<api key> PSBX_LOG_PROJECT=<project id> ./scripts/upload-sourcemaps.sh", "cwd": "example-web-with-logs", "timeoutSec": 600 }
+   ```
+
+5. Open the page on the box's virtual display and press the button:
+
+   ```json
+   sandbox_exec { "id": "<id>", "cmd": "DISPLAY=:99 chromium --no-sandbox --kiosk --window-size=1280,800 --user-data-dir=/tmp/chrome http://localhost:8080/", "background": true }
+   sandbox_shot { "id": "<id>" }
+   ```
+
+   Click `Throw an error` through `takeoverUrl`, or with xdotool: `sandbox_exec { "id": "<id>", "cmd": "DISPLAY=:99 xdotool mousemove 640 300 click 1" }` (take the button position from the `sandbox_shot` screenshot).
+
+6. Query the errors:
+
+   ```json
+   logs_errors { "project": "<project id>", "since": "10m" }
+   ```
+
+   Every row carries `message`, `release`, `boxId` and the resolved stack: `chargeCard (src/app.js:9)`, `prepareOrder (src/app.js:14)`, `handleCheckout (src/app.js:18)`.
+
+7. `sandbox_stop { "id": "<id>" }`.
+
+## Using the SDK
+
+```js
+import { init } from '@parallelsandbox/log';
+
+init({
+  project: 'prj_...',                          // project id
+  writeKey: 'pw_...',                          // the project's write key, safe to publish
+  endpoint: 'https://log.parallelsandbox.com', // log server
+  release: 'a1b2c3d',                          // same release id used when uploading source maps
+});
+```
+
+After `init`, uncaught errors, unhandled promise rejections and `console.error` are sent automatically, and pages running inside a box carry the box id. Full reference: https://parallelsandbox.com/en/docs/log-sdk/ .

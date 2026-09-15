@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>example-web-with-logs</title>
+<link rel="stylesheet" href="styles.css">
+<script type="importmap">
+{
+  "imports": {
+    "@parallelsandbox/log": "https://cdn.jsdelivr.net/npm/@parallelsandbox/log/+esm"
+  }
+}
+</script>
+<script src="config.js"></script>
+</head>
+<body>
+<main>
+  <h1>example-web-with-logs</h1>
+  <p>A static page with the ParallelSandbox browser log SDK attached. Press the button: it throws an uncaught error with a real stack, the SDK ships it to your project, and <code>logs_errors</code> returns it with the stack resolved through the uploaded source map.</p>
+  <button id="crash" type="button">Throw an error</button>
+  <p id="status" class="status">No error thrown yet.</p>
+  <dl class="meta">
+    <dt>project</dt><dd id="project"></dd>
+    <dt>endpoint</dt><dd id="endpoint"></dd>
+    <dt>release</dt><dd id="release"></dd>
+  </dl>
+</main>
+<script type="module" src="__LOG_JS__"></script>
+<script type="module" src="__APP_JS__"></script>
+</body>
+</html>

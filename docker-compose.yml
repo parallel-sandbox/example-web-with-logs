@@ -1,0 +1,17 @@
+services:
+  web:
+    build:
+      context: .
+      args:
+        PSBX_RELEASE: ${PSBX_RELEASE:-dev}
+    ports:
+      - "8080:80"
+    environment:
+      PSBX_LOG_PROJECT: ${PSBX_LOG_PROJECT:-local}
+      PSBX_LOG_WRITE_KEY: ${PSBX_LOG_WRITE_KEY:-local-write-key}
+      PSBX_LOG_ENDPOINT: ${PSBX_LOG_ENDPOINT:-https://log.parallelsandbox.com}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:80/config.js"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
