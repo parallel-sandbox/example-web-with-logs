@@ -58,10 +58,12 @@ write key 是可以放在網頁上的公開鍵，只能寫入這個 project 的 
 
    `PSBX_LOG_WRITE_KEY` 已經是箱子的環境變數，compose 直接帶進容器。
 
-4. 上傳 source map。容器裡的 build 產物跟本機 `npm run build` 一樣，所以在箱子裡再 build 一次拿到同一個 release 的 map：
+4. 上傳 source map。在你自己的機器上做，API key 不進箱子；同一個 commit 的 build 產物相同，release id 也相同：
 
-   ```json
-   sandbox_exec { "id": "<id>", "cmd": "npm ci && PSBX_RELEASE=$(git rev-parse --short HEAD) npm run build && PSBX_API_KEY=<api key> PSBX_LOG_PROJECT=<project id> ./scripts/upload-sourcemaps.sh", "cwd": "example-web-with-logs", "timeoutSec": 600 }
+   ```bash
+   git clone https://github.com/parallel-sandbox/example-web-with-logs.git && cd example-web-with-logs
+   npm ci && PSBX_RELEASE=$(git rev-parse --short HEAD) npm run build
+   PSBX_API_KEY=<api key> PSBX_LOG_PROJECT=<project id> ./scripts/upload-sourcemaps.sh
    ```
 
 5. 在箱子的虛擬螢幕上開頁面，按下按鈕：
@@ -158,10 +160,12 @@ The write key is a public key that can live in a web page; it can only write log
 
    `PSBX_LOG_WRITE_KEY` is already an environment variable on the box; compose passes it into the container.
 
-4. Upload the source maps. The build inside the container is identical to `npm run build`, so build once more in the box to get the maps for the same release:
+4. Upload the source maps from your own machine, so your API key never enters the box. The same commit builds the same assets, so the release id matches:
 
-   ```json
-   sandbox_exec { "id": "<id>", "cmd": "npm ci && PSBX_RELEASE=$(git rev-parse --short HEAD) npm run build && PSBX_API_KEY=<api key> PSBX_LOG_PROJECT=<project id> ./scripts/upload-sourcemaps.sh", "cwd": "example-web-with-logs", "timeoutSec": 600 }
+   ```bash
+   git clone https://github.com/parallel-sandbox/example-web-with-logs.git && cd example-web-with-logs
+   npm ci && PSBX_RELEASE=$(git rev-parse --short HEAD) npm run build
+   PSBX_API_KEY=<api key> PSBX_LOG_PROJECT=<project id> ./scripts/upload-sourcemaps.sh
    ```
 
 5. Open the page on the box's virtual display and press the button:
