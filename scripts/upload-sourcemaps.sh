@@ -12,13 +12,15 @@ cd "$(dirname "$0")/.."
 : "${PSBX_LOG_PROJECT:?PSBX_LOG_PROJECT is required}"
 ENDPOINT="${PSBX_LOG_ENDPOINT:-https://log.parallelsandbox.com}"
 RELEASE=$(cat dist/release.txt)
+# One file part per map, named after the path it is served at (assets/app-xxx.js.map); one request for the whole dist.
+args=()
 for map in dist/assets/*.map; do
-  path="assets/$(basename "$map" .map)"
+  path="assets/$(basename "$map")"
   echo "upload $map as $path (release $RELEASE)"
-  curl -fsS -X POST "$ENDPOINT/v1/projects/$PSBX_LOG_PROJECT/sourcemaps" \
-    -H "Authorization: Bearer $PSBX_API_KEY" \
-    -F "release=$RELEASE" \
-    -F "path=$path" \
-    -F "map=@$map;type=application/json"
-  echo
+  args+=(-F "$path=@$map;type=application/json")
 done
+curl -fsS -X POST "$ENDPOINT/v1/projects/$PSBX_LOG_PROJECT/sourcemaps" \
+  -H "Authorization: Bearer $PSBX_API_KEY" \
+  -F "release=$RELEASE" \
+  "${args[@]}"
+echo
